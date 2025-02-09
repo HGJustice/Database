@@ -4,7 +4,7 @@ use crate::errors::{DatabaseErrors, TransactionErrors};
 
 struct Data<T> {
     item: T,
-}
+}k 
 
 impl<T> Data<T> {
     fn new(item: T) -> Data<T> {
@@ -70,6 +70,10 @@ impl<T> Transaction<T> {
     }
 
     fn rollback_changes() -> Result<(), TransactionErrors> {
+        todo!();
+    }
+
+    fn migrate_changes() -> Result<(), TransactionErrors> {
         todo!();
     }
 }
