@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 use crate::errors::{DatabaseErrors, TransactionErrors};
+use std::sync::Arc;  
+use tokio::sync::Mutex; 
 
-
+#[derive(Clone)]
 struct Data<T> {
     item: T,
-}k 
+}
 
 impl<T> Data<T> {
     fn new(item: T) -> Data<T> {
@@ -22,32 +24,57 @@ enum DatabaseOperations<T> {
 }
 
 struct Database<T> {
-    primary_key: u32,
-    storage: HashMap<u32, Data<T>>
+    primary_key: Mutex<u32>,
+    storage: Mutex<HashMap<u32, Data<T>>>
 }
 
-impl<T> Database<T> {
+impl<T: Clone> Database<T> {
 
-    fn new() -> Database<T> {
-        Database { primary_key: 1, storage: HashMap::new()}
+    fn new() -> Arc<Database<T>> {
+       Arc::new( Database { primary_key: Mutex::new(1), storage: Mutex::new(HashMap::new())})
     }
 
-    fn insert_data() -> Result<(), DatabaseErrors> {
-        todo!();
+    async fn insert_data(&self, data: T) -> Result<(), DatabaseErrors> {
+        let mut key = *self.primary_key.lock().await;
+
+        self.storage.lock().await.insert(key, Data::new(data));
+        key += 1;
+        Ok(())
     }
 
-    fn get_data() -> Result<(), DatabaseErrors> {
-        todo!();
+    async fn get_data(&self, key: u32) -> Result<Data<T>, DatabaseErrors> {
+        if key >= *self.primary_key.lock().await {
+            return Err(DatabaseErrors::InvalidKeyError);
+        }
+        let result = self.storage.lock().await.get(&key).cloned().ok_or(DatabaseErrors::InvalidKeyError)?;
+        Ok(result)
     }
 
-    fn update_data() -> Result<(), DatabaseErrors> {
-        todo!();
+    async fn update_data(self, key: u32, update: Data<T> ) -> Result<(), DatabaseErrors> {
+        if key >= *self.primary_key.lock().await {
+            return Err(DatabaseErrors::InvalidKeyError)
+        }
+        let result = self.storage.lock().await.get_mut(&key).unwrap();
+        *result = update;
+        Ok(())
     }
 
-    fn delete_data() -> Result<(), DatabaseErrors>{
+    async fn delete_data(self, key: u32) -> Result<(), DatabaseErrors> {
+        if key >= *self.primary_key.lock().await {
+            return Err(DatabaseErrors::InvalidKeyError);
+        }
+        Ok(())
+
+    }
+}
+
+impl Database<String> {
+    async fn get_string_data(self, key: u32) -> Result<Data<String>, DatabaseErrors> {
+ 
         todo!();
     }
 }
+
 
 enum TransactionState {
     Created,
@@ -76,4 +103,9 @@ impl<T> Transaction<T> {
     fn migrate_changes() -> Result<(), TransactionErrors> {
         todo!();
     }
+}
+
+enum Actions {
+    Read,
+    Wrtie    //????
 }
