@@ -23,22 +23,23 @@ enum DatabaseOperations<T> {
     Delete(u32)
 }
 
-struct Database<T> {
+pub struct Database<T> {
     primary_key: Mutex<u32>,
     storage: Mutex<HashMap<u32, Data<T>>>
 }
 
 impl<T: Clone> Database<T> {
 
-    fn new() -> Arc<Database<T>> {
+    pub fn new() -> Arc<Database<T>> {
        Arc::new( Database { primary_key: Mutex::new(1), storage: Mutex::new(HashMap::new())})
     }
 
     async fn insert_data(&self, data: T) -> Result<(), DatabaseErrors> {
-        let mut key = *self.primary_key.lock().await;
+        let key = *self.primary_key.lock().await;
 
         self.storage.lock().await.insert(key, Data::new(data));
-        key += 1;
+        let updated_key = self.primary_key.lock().await.checked_add(1).unwrap();
+        *self.primary_key.lock().await = updated_key;
         Ok(())
     }
 
@@ -50,34 +51,37 @@ impl<T: Clone> Database<T> {
         Ok(result)
     }
 
-    async fn update_data(self, key: u32, update: Data<T> ) -> Result<(), DatabaseErrors> {
+    async fn update_data(self, key: u32, update: T ) -> Result<(), DatabaseErrors> {
         if key >= *self.primary_key.lock().await {
             return Err(DatabaseErrors::InvalidKeyError)
         }
-        let result = self.storage.lock().await.get_mut(&key).unwrap();
-        *result = update;
+        let mut result = self.storage.lock().await.get_mut(&key).cloned().unwrap(); //explain this error when remove cloned
+        result.item = update;
         Ok(())
     }
 
-    async fn delete_data(self, key: u32) -> Result<(), DatabaseErrors> {
+    async fn delete_data(&self, key: u32) -> Result<(), DatabaseErrors> {
         if key >= *self.primary_key.lock().await {
             return Err(DatabaseErrors::InvalidKeyError);
         }
+        self.storage.lock().await.remove(&key);
         Ok(())
 
     }
 }
 
-impl Database<String> {
-    async fn get_string_data(self, key: u32) -> Result<Data<String>, DatabaseErrors> {
- 
-        todo!();
-    }
-}
-
+// impl Database<String> {
+//     async fn get_string_data(&self, key: u32) -> Result<Data<String>, DatabaseErrors> {
+//         if key >= *self.primary_key.lock().await {
+//             return Err(DatabaseErrors::InvalidKeyError);
+//         }
+//         let result = self.storage.lock().await.get(&key).cloned().ok_or(DatabaseErrors::InvalidKeyError)?;
+//         Ok(result)
+//     }
+// }
 
 enum TransactionState {
-    Created,
+    New,
     RolledBack,
     Commited,
 }
@@ -89,7 +93,7 @@ struct Transaction<T> {
 
 impl<T> Transaction<T> {
     fn new() -> Transaction<T> {
-        Transaction { operations: Vec::new(), state: TransactionState::Created }
+        Transaction { operations: Vec::new(), state: TransactionState::New }
     }
 
     fn commit_changes() -> Result<(), TransactionErrors> {
