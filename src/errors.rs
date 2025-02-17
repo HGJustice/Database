@@ -7,5 +7,5 @@ pub enum DatabaseErrors {
 
 #[derive(Debug)]
 pub enum TransactionErrors {
-
+    InvalidOperation
 }

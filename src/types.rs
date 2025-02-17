@@ -16,6 +16,7 @@ impl Data {
     }
 }
 
+
 enum DatabaseOperations {
     Insert(u32, Data), 
     Get(u32),
@@ -33,7 +34,7 @@ impl Database {
        Arc::new( Database { primary_key: RwLock::new(1), storage: RwLock::new(HashMap::new())})
     }
 
-    async fn insert_data(&self, data: String) -> Result<(), DatabaseErrors> {
+    pub async fn insert_data(&self, data: String) -> Result<(), DatabaseErrors> {
         let mut key = self.primary_key.write().await;  
     
         self.storage.write().await.insert(*key, Data::new(data));
@@ -68,11 +69,9 @@ impl Database {
         Ok(())
     }
 
-    async fn begin_transaction(&self) -> Transaction {
-        Transaction { operations: Vec::new(), tx_state: TransactionState::New, database_state: Arc::clone(self) }
-    }
 }
 
+#[derive(Clone, Copy)]
 enum TransactionState {
     New,
     RolledBack,
@@ -80,25 +79,54 @@ enum TransactionState {
 }
 
 struct Transaction {
-    operations: Vec<DatabaseOperations>,
-    tx_state: TransactionState,
+    operations: RwLock<Vec<DatabaseOperations>>,
+    tx_state: RwLock<TransactionState>,
     database_state: Arc<Database>
 }
 
 impl Transaction {
 
-    fn add_operation(&mut self, operation: DatabaseOperations) -> Result<(), TransactionErrors> {
-        todo!();
+    async fn begin_transaction(&self) -> Transaction {
+        Transaction { operations: RwLock::new(Vec::new()), tx_state: RwLock::new(TransactionState::New), database_state: Arc::clone(&self.database_state) }
+    }
+
+    async fn add_operation(&self, operation: DatabaseOperations) -> Result<(), TransactionErrors> {
         //push crud operartions on the vector which will be executed on the database
+        self.operations.write().await.push(operation);
+        Ok(())
     }
 
-    fn commit(&mut self,) -> Result<(), TransactionErrors> {
-        todo!();
-        //match statment which executes the operation from the transaction vector on the database_state 
+    async fn commit_changes(&self,) -> Result<(), TransactionErrors> {
+         //match statment which executes the operation from the transaction vector on the database_state 
+         let operartions = &mut *self.operations.write().await;
+        for op in operartions  {
+            match op {
+                DatabaseOperations::Insert(_,_ ) => {
+                    Database::insert_data(&self.database_state, String::from("test"));
+                    operartions.pop();
+                }
+                DatabaseOperations::Update(_,_ ) => {
+                    Database::update_data(&self.database_state, 1, String::from("test"));
+                    operartions.pop();
+                }
+                DatabaseOperations::Delete(_) => {
+                    Database::delete_data(&self.database_state, 1);
+                    operartions.pop();
+                }
+                _ => return Err(TransactionErrors::InvalidOperation)
+
+                
+            }
+        }
+        Ok(())
     }
 
-    fn roll_back(&mut self,) -> Result<(), DatabaseErrors> {
-        todo!();
+    async fn roll_back(&mut self,) -> Result<(), DatabaseErrors> {
         //clear / delete the current transaction instnce if on one and is empty 
+        self.operations.write().await.clear();
+        let mut tx_state = self.tx_state.write().await;
+        *tx_state = TransactionState::RolledBack; 
+        Ok(())
+       
     }
 }
