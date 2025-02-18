@@ -7,5 +7,9 @@ pub enum DatabaseErrors {
 
 #[derive(Debug)]
 pub enum TransactionErrors {
-    InvalidOperation
+    NotNewTransaction,
+    InvalidOperation,
+    ErrorInInsertingData,
+    ErrorUpdatingTheDatabase,
+    ErrorInDeletingData,
 }

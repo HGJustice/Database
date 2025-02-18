@@ -1,10 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{ HashMap, VecDeque};
 use crate::errors::{DatabaseErrors, TransactionErrors};
 use std::sync::Arc;  
 use tokio::sync::RwLock; 
 
-#[derive(Clone)]
-struct Data {
+#[derive(Clone, Debug)]
+pub struct Data {
     item: String,
 }
 
@@ -16,11 +16,9 @@ impl Data {
     }
 }
 
-
-enum DatabaseOperations {
-    Insert(u32, Data), 
-    Get(u32),
-    Update(u32, Data),
+pub enum DatabaseOperations {
+    Insert(String), 
+    Update(u32, String),
     Delete(u32)
 }
 
@@ -34,7 +32,7 @@ impl Database {
        Arc::new( Database { primary_key: RwLock::new(1), storage: RwLock::new(HashMap::new())})
     }
 
-    pub async fn insert_data(&self, data: String) -> Result<(), DatabaseErrors> {
+    async fn insert_data(&self, data: String) -> Result<(), DatabaseErrors> {
         let mut key = self.primary_key.write().await;  
     
         self.storage.write().await.insert(*key, Data::new(data));
@@ -43,7 +41,7 @@ impl Database {
         Ok(())
     }
 
-    async fn get_data(&self, key: u32) -> Result<Data, DatabaseErrors> {
+    pub async fn get_data(&self, key: u32) -> Result<Data, DatabaseErrors> {
         if key >= *self.primary_key.read().await {
             return Err(DatabaseErrors::InvalidKeyError);
         }
@@ -71,62 +69,83 @@ impl Database {
 
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, )]
 enum TransactionState {
     New,
     RolledBack,
     Commited,
 }
 
-struct Transaction {
-    operations: RwLock<Vec<DatabaseOperations>>,
+pub struct Transaction {
+    operations: RwLock<VecDeque<DatabaseOperations>>,
     tx_state: RwLock<TransactionState>,
     database_state: Arc<Database>
 }
 
 impl Transaction {
 
-    async fn begin_transaction(&self) -> Transaction {
-        Transaction { operations: RwLock::new(Vec::new()), tx_state: RwLock::new(TransactionState::New), database_state: Arc::clone(&self.database_state) }
+    pub async fn new(database: &Arc<Database>) -> Transaction {
+        Transaction { operations: RwLock::new(VecDeque::new()), tx_state: RwLock::new(TransactionState::New), database_state: Arc::clone(database) }
     }
 
-    async fn add_operation(&self, operation: DatabaseOperations) -> Result<(), TransactionErrors> {
+    pub async fn add_operation(&self, operation: DatabaseOperations) -> Result<(), TransactionErrors> {
         //push crud operartions on the vector which will be executed on the database
-        self.operations.write().await.push(operation);
+        let tx_state = self.tx_state.read().await;
+        if *tx_state != TransactionState::New {
+            return Err(TransactionErrors::NotNewTransaction)
+        }
+        self.operations.write().await.push_back(operation);
         Ok(())
     }
 
-    async fn commit_changes(&self,) -> Result<(), TransactionErrors> {
+    pub async fn commit_changes(&self,) -> Result<(), TransactionErrors> {
          //match statment which executes the operation from the transaction vector on the database_state 
-         let operartions = &mut *self.operations.write().await;
-        for op in operartions  {
-            match op {
-                DatabaseOperations::Insert(_,_ ) => {
-                    Database::insert_data(&self.database_state, String::from("test"));
-                    operartions.pop();
+         let tx_state = self.tx_state.read().await;
+        if *tx_state != TransactionState::New {
+            return Err(TransactionErrors::NotNewTransaction);
+        }
+        let operartions = &mut *self.operations.write().await;
+        while !operartions.is_empty() {
+            let current_operation = &operartions[0];
+            match current_operation {
+                DatabaseOperations::Insert(data,) => {
+                    let result = Database::insert_data(&self.database_state, data.to_string()).await;
+                    if result.is_err() {
+                        self.roll_back().await?;
+                        return Err(TransactionErrors::ErrorInInsertingData);
+                    }
+                   
                 }
-                DatabaseOperations::Update(_,_ ) => {
-                    Database::update_data(&self.database_state, 1, String::from("test"));
-                    operartions.pop();
+                DatabaseOperations::Update(key,data) => {
+                    let result = Database::update_data(&self.database_state, *key,  data.to_string()).await;
+                    if result.is_err() {
+                        self.roll_back().await?;
+                        return Err(TransactionErrors::ErrorUpdatingTheDatabase)
+                    }
+            
                 }
-                DatabaseOperations::Delete(_) => {
-                    Database::delete_data(&self.database_state, 1);
-                    operartions.pop();
+                DatabaseOperations::Delete(key) => {
+                    let result = Database::delete_data(&self.database_state, *key).await;
+                    if result.is_err() {
+                        self.roll_back().await?;
+                        return Err(TransactionErrors::ErrorInDeletingData)
+                    }
+                
                 }
-                _ => return Err(TransactionErrors::InvalidOperation)
-
                 
             }
+            operartions.pop_front();
         }
+        let mut tx_state = self.tx_state.write().await;
+        *tx_state = TransactionState::Commited;
         Ok(())
     }
 
-    async fn roll_back(&mut self,) -> Result<(), DatabaseErrors> {
+    pub async fn roll_back(&self,) -> Result<(), TransactionErrors> {
         //clear / delete the current transaction instnce if on one and is empty 
         self.operations.write().await.clear();
         let mut tx_state = self.tx_state.write().await;
         *tx_state = TransactionState::RolledBack; 
         Ok(())
-       
     }
 }
