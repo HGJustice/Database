@@ -99,7 +99,6 @@ impl Transaction {
     }
 
     pub async fn commit_changes(&self,) -> Result<(), TransactionErrors> {
-         //match statment which executes the operation from the transaction vector on the database_state 
          let tx_state = self.tx_state.read().await;
         if *tx_state != TransactionState::New {
             return Err(TransactionErrors::NotNewTransaction);
@@ -109,7 +108,7 @@ impl Transaction {
             let current_operation = &operartions[0];
             match current_operation {
                 DatabaseOperations::Insert(data,) => {
-                    let result = Database::insert_data(&self.database_state, data.to_string()).await;
+                    let result = self.database_state.insert_data(data.to_string()).await;
                     if result.is_err() {
                         self.roll_back().await?;
                         return Err(TransactionErrors::ErrorInInsertingData);
@@ -117,32 +116,29 @@ impl Transaction {
                    
                 }
                 DatabaseOperations::Update(key,data) => {
-                    let result = Database::update_data(&self.database_state, *key,  data.to_string()).await;
+                    let result = self.database_state.update_data(*key, data.to_string()).await;
                     if result.is_err() {
                         self.roll_back().await?;
                         return Err(TransactionErrors::ErrorUpdatingTheDatabase)
                     }
-            
                 }
                 DatabaseOperations::Delete(key) => {
-                    let result = Database::delete_data(&self.database_state, *key).await;
+                    let result = self.database_state.delete_data(*key).await;
                     if result.is_err() {
                         self.roll_back().await?;
                         return Err(TransactionErrors::ErrorInDeletingData)
                     }
-                
                 }
-                
             }
             operartions.pop_front();
         }
+        drop(tx_state);
         let mut tx_state = self.tx_state.write().await;
         *tx_state = TransactionState::Commited;
         Ok(())
     }
 
     pub async fn roll_back(&self,) -> Result<(), TransactionErrors> {
-        //clear / delete the current transaction instnce if on one and is empty 
         self.operations.write().await.clear();
         let mut tx_state = self.tx_state.write().await;
         *tx_state = TransactionState::RolledBack; 
