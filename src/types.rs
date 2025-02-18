@@ -5,7 +5,7 @@ use tokio::sync::RwLock;
 
 #[derive(Clone, Debug)]
 pub struct Data {
-    item: String,
+    pub item: String,
 }
 
 impl Data {
@@ -32,7 +32,7 @@ impl Database {
        Arc::new( Database { primary_key: RwLock::new(1), storage: RwLock::new(HashMap::new())})
     }
 
-    async fn insert_data(&self, data: String) -> Result<(), DatabaseErrors> {
+    pub async fn insert_data(&self, data: String) -> Result<(), DatabaseErrors> {
         let mut key = self.primary_key.write().await;  
     
         self.storage.write().await.insert(*key, Data::new(data));
@@ -49,7 +49,7 @@ impl Database {
         Ok(result)
     }
 
-    async fn update_data(&self, key: u32, update: String ) -> Result<(), DatabaseErrors> {
+    pub async fn update_data(&self, key: u32, update: String ) -> Result<(), DatabaseErrors> {
         if key >= *self.primary_key.read().await {
             return Err(DatabaseErrors::InvalidKeyError)
         }
@@ -59,7 +59,7 @@ impl Database {
         Ok(())
     }
 
-    async fn delete_data(&self, key: u32) -> Result<(), DatabaseErrors> {
+    pub async fn delete_data(&self, key: u32) -> Result<(), DatabaseErrors> {
         if key >= *self.primary_key.read().await {
             return Err(DatabaseErrors::InvalidKeyError);
         }
@@ -69,16 +69,16 @@ impl Database {
 
 }
 
-#[derive(Clone, Copy, PartialEq, )]
-enum TransactionState {
+#[derive(Clone, Copy, PartialEq)]
+pub enum TransactionState {
     New,
     RolledBack,
     Commited,
 }
 
 pub struct Transaction {
-    operations: RwLock<VecDeque<DatabaseOperations>>,
-    tx_state: RwLock<TransactionState>,
+    pub operations: RwLock<VecDeque<DatabaseOperations>>,
+    pub tx_state: RwLock<TransactionState>,
     database_state: Arc<Database>
 }
 
@@ -89,7 +89,6 @@ impl Transaction {
     }
 
     pub async fn add_operation(&self, operation: DatabaseOperations) -> Result<(), TransactionErrors> {
-        //push crud operartions on the vector which will be executed on the database
         let tx_state = self.tx_state.read().await;
         if *tx_state != TransactionState::New {
             return Err(TransactionErrors::NotNewTransaction)
@@ -113,7 +112,6 @@ impl Transaction {
                         self.roll_back().await?;
                         return Err(TransactionErrors::ErrorInInsertingData);
                     }
-                   
                 }
                 DatabaseOperations::Update(key,data) => {
                     let result = self.database_state.update_data(*key, data.to_string()).await;

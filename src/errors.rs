@@ -2,7 +2,7 @@
 pub enum DatabaseErrors {
     InvalidKeyError,
     KeyNotFound,
-    PrimaryKeyIncreaseFailed
+    PrimaryKeyIncreaseFailed,
 }
 
 #[derive(Debug)]
