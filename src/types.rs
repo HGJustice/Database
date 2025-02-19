@@ -66,10 +66,9 @@ impl Database {
         self.storage.write().await.remove(&key);
         Ok(())
     }
-
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum TransactionState {
     New,
     RolledBack,
@@ -98,7 +97,7 @@ impl Transaction {
     }
 
     pub async fn commit_changes(&self,) -> Result<(), TransactionErrors> {
-         let tx_state = self.tx_state.read().await;
+        let tx_state = self.tx_state.read().await;
         if *tx_state != TransactionState::New {
             return Err(TransactionErrors::NotNewTransaction);
         }
