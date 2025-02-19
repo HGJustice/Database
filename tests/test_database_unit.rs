@@ -55,6 +55,9 @@ mod tests {
         tx1.add_operation(DatabaseOperations::Insert(String::from("hi"))).await.unwrap();
         tx1.add_operation(DatabaseOperations::Insert(String::from("hello"))).await.unwrap();
         tx1.add_operation(DatabaseOperations::Insert(String::from("lol"))).await.unwrap();
+        tx1.commit_changes().await.unwrap();
+        let result = database.get_data(1).await.unwrap();
+        assert_eq!(result.item, "hi".to_string());
     }
 
     #[tokio::test]
@@ -79,6 +82,21 @@ mod tests {
         let current_queue = tx1.operations.read().await;
         assert_eq!(*current_state, TransactionState::RolledBack);
         assert!(current_queue.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_failled_commit_state_rollback() {
+        let database = Database::new();
+        let tx1 = Transaction::new(&database).await;
+        tx1.add_operation(DatabaseOperations::Insert("hi".to_string())).await.unwrap();
+        tx1.add_operation(DatabaseOperations::Insert("lool".to_string())).await.unwrap();
+        tx1.add_operation(DatabaseOperations::Update(2, String::from("updated"))).await.unwrap();
+        tx1.add_operation(DatabaseOperations::Update(5, String::from("error?"))).await.unwrap();
+        assert!(tx1.commit_changes().await.is_err());
+        let state = tx1.tx_state.read().await;
+        let ops = tx1.operations.read().await;
+        assert_eq!(*state, TransactionState::RolledBack);
+        assert!(ops.is_empty());
     }
 
     #[tokio::test]
@@ -108,5 +126,27 @@ mod tests {
         tx1.add_operation(DatabaseOperations::Insert("hi".to_string())).await.unwrap();
         tx1.roll_back().await.unwrap();
         assert!(matches!(tx1.commit_changes().await, Err(TransactionErrors::NotNewTransaction)));   
+    }
+
+    #[tokio::test]
+    async fn test_commit_rolledback_tx_revert(){
+        let database = Database::new();
+        let tx1 = Transaction::new(&database).await;
+        tx1.roll_back().await.unwrap();
+        let state = tx1.tx_state.read().await;
+        assert_eq!(*state, TransactionState::RolledBack);
+        assert!(matches!(tx1.commit_changes().await, Err(TransactionErrors::NotNewTransaction) ))
+
+    }
+
+    #[tokio::test]
+    async fn test_already_commited_tx_revert(){
+        let database = Database::new();
+        let tx1 = Transaction::new(&database).await;
+        tx1.add_operation(DatabaseOperations::Insert(String::from("hi"))).await.unwrap();
+        tx1.commit_changes().await.unwrap();
+        let state = tx1.tx_state.read().await;
+        assert_eq!(*state, TransactionState::Commited);
+        assert!(matches!(tx1.commit_changes().await, Err(TransactionErrors::NotNewTransaction)));
     }
 }

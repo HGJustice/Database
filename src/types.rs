@@ -101,20 +101,24 @@ impl Transaction {
         if *tx_state != TransactionState::New {
             return Err(TransactionErrors::NotNewTransaction);
         }
-        let operartions = &mut *self.operations.write().await;
+        drop(tx_state);
+        let mut operartions = self.operations.write().await;
         while !operartions.is_empty() {
             let current_operation = &operartions[0];
             match current_operation {
+    
                 DatabaseOperations::Insert(data,) => {
                     let result = self.database_state.insert_data(data.to_string()).await;
                     if result.is_err() {
+                        drop(operartions);
                         self.roll_back().await?;
-                        return Err(TransactionErrors::ErrorInInsertingData);
+                        return Err(TransactionErrors::ErrorInInsertingData)
                     }
                 }
                 DatabaseOperations::Update(key,data) => {
                     let result = self.database_state.update_data(*key, data.to_string()).await;
                     if result.is_err() {
+                        drop(operartions);
                         self.roll_back().await?;
                         return Err(TransactionErrors::ErrorUpdatingTheDatabase)
                     }
@@ -122,6 +126,7 @@ impl Transaction {
                 DatabaseOperations::Delete(key) => {
                     let result = self.database_state.delete_data(*key).await;
                     if result.is_err() {
+                        drop(operartions);
                         self.roll_back().await?;
                         return Err(TransactionErrors::ErrorInDeletingData)
                     }
@@ -129,7 +134,7 @@ impl Transaction {
             }
             operartions.pop_front();
         }
-        drop(tx_state);
+
         let mut tx_state = self.tx_state.write().await;
         *tx_state = TransactionState::Commited;
         Ok(())
