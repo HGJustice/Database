@@ -1,9 +1,6 @@
 use database::types::*;
 use database::errors::*;
 
-mod tests {
-    use super::*;
-
     #[tokio::test]
     async fn test_insert_get_data(){
         let database = Database::new();
@@ -149,4 +146,3 @@ mod tests {
         assert_eq!(*state, TransactionState::Commited);
         assert!(matches!(tx1.commit_changes().await, Err(TransactionErrors::NotNewTransaction)));
     }
-}
